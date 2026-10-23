@@ -559,6 +559,7 @@ textarea{min-height:6.5rem;resize:vertical}
 </svg>
 
 <dialog class="bonus-dialog" id="bonus-dialog" aria-labelledby="bonus-dialog-titel"><span class="bd-figur" aria-hidden="true"></span><p class="bd-klein">Freigeschaltet!</p><h2 id="bonus-dialog-titel">Bonus-Level</h2><p>Vier Profi-Fragen: Holzart, Dicke, Ofenlänge und dein bester Trick. Etwa eine Minute, alles freiwillig.</p><div class="aktionen"><button type="button" class="knopf" id="bonus-dialog-los">Bonus-Level starten</button><button type="button" class="textknopf" id="bonus-dialog-nein">Nein danke</button></div></dialog>
+<dialog class="bonus-dialog" id="holz-dialog" aria-labelledby="holz-dialog-titel"></dialog>
 
 <div class="proto" id="proto"><div class="huelle"><span>Prototyp v0.8: Antworten bleiben auf diesem Gerät</span><button type="button" id="neustart">Neu starten</button></div></div>
 <div class="stand" id="stand" hidden><div class="huelle"><ol class="bloecke" id="bloecke"><li data-nr="1"><span class="bl-text">Wer bist du</span></li><li data-nr="2"><span class="bl-text">Dein Holzweg</span></li><li data-nr="3"><span class="bl-text">Was nervt</span></li></ol><div class="stapel-box"><span id="rest"></span><svg id="stapel" viewBox="0 0 40 20" shape-rendering="crispEdges" aria-hidden="true"></svg></div></div></div>
@@ -574,7 +575,7 @@ var CONFIG = {
   DB_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBuc2tsend0b2twZ29mbWZhaGFlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI0ODg5NDMsImV4cCI6MjEwODA2NDk0M30.79njAl0tjVY-vU6XFBoheT6JvyusLeJs8Yoo_kkpb_k", // öffentlicher Schlüssel, Tabelle erlaubt nur Einfügen (Datenbank in Irland, EU)
   KONTAKT_URL: "#",
   MAIL: "henry.niemeier@smail.th-koeln.de",
-  VERSION: "v0.8-live-2026-10-20"
+  VERSION: "v0.8.2-live-2026-10-23"
 };
 /* Kanaltabelle (modular): Kürzel -> Name, Sprache. Neue Kanäle einfach ergänzen; Links/QR-Codes werden daraus erzeugt. */
 var KANAELE = {
@@ -703,7 +704,8 @@ function haupt(){ var q=quellen(); if (q.length<2) return q[0]||null; return q.i
 function kaeufer(){ var q=quellen(); return q.length>0 && q.every(function(x){return x==="ofenfertig";}); }
 function verarbeiter(){ return quellen().length>0 && !kaeufer(); }
 function imWald(){ return hatQ("wald","selbstwerbung"); }
-function ausgeschlossen(){ return a("S2")==="u18"; } // alle Länder und auch Nicht-Holzheizer machen weiter; Ausschluss erst bei der Auswertung
+function ohneHolz(){ return a("S3")==="nein" && a("S3b")==="kein_bezug" && ["start","b1_kurz","endeA"].indexOf(S.seite)>=0; }
+function ausgeschlossen(){ return a("S2")==="u18" || ohneHolz(); } // v0.8.2: wer nicht mit Holz heizt, wird per Popup gefragt (S3b); nur "kein_bezug" endet nach Seite 1; alle Länder machen weiter
 function szenen(){
   if (!quellen().length) return ["wald","transport","hof","ofen"];
   var L=[];
@@ -942,7 +944,7 @@ function verdrahte(){
   form.addEventListener("change",function(e){
     var t=e.target; if (!t.name || t.type==="text" || t.tagName==="TEXTAREA") return;
     var q=frageVon(t.name); if (!q) return;
-    if (t.type==="radio") S.antworten[q.id]=t.value;
+    if (t.type==="radio"){ S.antworten[q.id]=t.value; if (q.id==="S3"){ delete S.antworten.S3b; if (t.value==="nein") setTimeout(oeffneHolzDialog,0); } }
     else if (q.typ==="rang"){
       var R=(a(q.id)||[]).slice();
       if (t.checked){
@@ -982,8 +984,26 @@ function pruefeSeite(){
 }
 var seitenStart=Date.now();
 function zeitBuchen(){ S.zeiten[S.seite]=(S.zeiten[S.seite]||0)+(Date.now()-seitenStart); seitenStart=Date.now(); }
+function oeffneHolzDialog(){
+  var d=document.getElementById("holz-dialog"); if (!d || d.open) return;
+  d.innerHTML='<p class="bd-klein">'+sp("Kurze Rückfrage","Quick question")+'</p><h2 id="holz-dialog-titel">'+sp("Du heizt nicht mit Holz.","You don’t heat with wood.")+'</h2><p>'+sp("Was passt eher zu dir?","Which fits you better?")+'</p>'+
+    '<div class="aktionen"><button type="button" class="knopf" id="holz-macht">'+sp("Ich heize nicht, mache aber Brennholz","I don’t heat with wood, but I make firewood")+'</button>'+
+    '<button type="button" class="knopf knopf--leise" id="holz-kein">'+sp("Ich habe keine Berührungspunkte mit Brennholz","I have nothing to do with firewood")+'</button>'+
+    '<button type="button" class="textknopf" id="holz-zurueck">'+sp("Doch, ich heize mit Holz: Antwort ändern","Actually, I do heat with wood: change answer")+'</button></div>';
+  document.getElementById("holz-macht").addEventListener("click",function(){ S.antworten.S3b="macht_holz"; d.close(); sichereLokal(); });
+  document.getElementById("holz-kein").addEventListener("click",function(){ S.antworten.S3b="kein_bezug"; d.close(); endeOhneHolz(); });
+  document.getElementById("holz-zurueck").addEventListener("click",function(){ delete S.antworten.S3; delete S.antworten.S3b; d.close(); render(); });
+  d.showModal();
+}
+function endeOhneHolz(){
+  zeitBuchen(); FEHLT={};
+  var alt=S.seite; S.verlauf.push(alt); S.seite="endeA";
+  sichern(alt, true);
+  render(); window.scrollTo(0,0);
+}
 function weiter(){
   if (!pruefeSeite()) return;
+  if (S.seite==="b1_kurz" && a("S3")==="nein" && !a("S3b")){ oeffneHolzDialog(); return; }
   FEHLT={};
   zeitBuchen();
   var L=seiten(), i=L.indexOf(S.seite), alt=S.seite;
@@ -1049,8 +1069,11 @@ function renderStart(){
 }
 function renderEndeA(){
   document.getElementById("stand").hidden=true;
-  app.innerHTML='<h1 class="seite-titel" style="margin-top:2rem">'+sp("Danke für dein Interesse!","Thanks for your interest!")+'</h1><p>'+sp("Diese Umfrage richtet sich an Erwachsene.","This survey is for adults.")+'</p><p><button type="button" class="knopf knopf--leise" id="z2">'+sp("Zurück zur letzten Frage","Back to the last question")+'</button></p>';
-  document.getElementById("z2").addEventListener("click",function(){ S.seite="b1_kurz"; render(); });
+  var u18=a("S2")==="u18";
+  app.innerHTML=(u18
+    ? '<h1 class="seite-titel" style="margin-top:2rem">'+sp("Danke für dein Interesse!","Thanks for your interest!")+'</h1><p>'+sp("Diese Umfrage richtet sich an Erwachsene.","This survey is for adults.")+'</p>'
+    : '<h1 class="seite-titel" style="margin-top:2rem">'+sp("Danke fürs Mitmachen!","Thanks for taking part!")+'</h1><p>'+sp("Die Umfrage richtet sich an alle, die mit Holz heizen oder Brennholz machen. Da du damit keine Berührungspunkte hast, bist du hier schon fertig.","This survey is for people who heat with wood or make firewood. Since you don’t, you’re already done.")+'</p><p>'+sp("Kennst du jemanden, der mit Holz heizt oder Brennholz macht? Dann gib die Umfrage gern weiter.","Know someone who heats with wood or makes firewood? Feel free to pass the survey on.")+'</p>')+'<p><button type="button" class="knopf knopf--leise" id="z2">'+sp("Zurück zur letzten Frage","Back to the last question")+'</button></p>';
+  document.getElementById("z2").addEventListener("click",function(){ S.seite="b1_kurz"; delete S.antworten.S3b; render(); });
 }
 function berechneTyp(){
   if (kaeufer()) return "kamingeniesser";
